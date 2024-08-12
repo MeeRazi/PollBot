@@ -1,9 +1,10 @@
-import re, os, asyncio, json
+import re, os, asyncio, json, random
 from pyrogram import Client, filters, enums
 from pyrogram.errors import FloodWait
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.types import Message
 from quart import Quart
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Telegram API credentials
 API_ID = int(os.environ.get('API_ID'))
@@ -19,6 +20,9 @@ app = Client(
 
 # File to store loaded quiz files
 LOADED_FILES = "loaded_files.json"
+QUIZ_DATA = "quiz_data.json"
+SETTINGS = "settings.json"
+
 
 def load_files():
     if os.path.exists(LOADED_FILES):
@@ -29,6 +33,33 @@ def load_files():
 def save_files(files):
     with open(LOADED_FILES, 'w') as f:
         json.dump(files, f)
+
+# New function to generate a unique quiz ID
+def generate_quiz_id():
+    return ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=8))
+
+# New function to save quiz data
+def save_quiz_data(quiz_id, questions):
+    quiz_data = load_json_file(QUIZ_DATA)
+    quiz_data[quiz_id] = questions
+    save_json_file(QUIZ_DATA, quiz_data)
+
+# New function to load quiz data
+def load_quiz_data(quiz_id):
+    quiz_data = load_json_file(QUIZ_DATA)
+    return quiz_data.get(quiz_id)
+
+# New function to load JSON file
+def load_json_file(filename):
+    if os.path.exists(filename):
+        with open(filename, 'r') as f:
+            return json.load(f)
+    return {}
+
+# New function to save JSON file
+def save_json_file(filename, data):
+    with open(filename, 'w') as f:
+        json.dump(data, f)
 
 def process_questions(content):
     questions = re.split(r'\n\s*\n(?=\d+\.)', content.strip())
@@ -110,14 +141,6 @@ async def is_admin(client, chat_id, user_id):
         return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
     except Exception:
         return False
-    
-@app.on_message(filters.command("start") & filters.private)
-async def start(client, message):
-    button = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("Add me to a group", url=f"t.me/{(await client.get_me()).username}?startgroup=true")]]
-    )
-    await message.reply_text("I am a quiz bot. Please add me to a group to start a quiz!",
-                             reply_markup=button)
 
 @app.on_message(filters.command("poll"))
 async def generate_quiz_from_file(client, message: Message):
@@ -279,6 +302,143 @@ async def delete_file(client, message):
         await message.reply_text(f"File '{file_name}' has been deleted.")
     else:
         await message.reply_text(f"File '{file_name}' is not loaded for this group.")
+
+# Modified start command to handle quiz generation from shared link
+@app.on_message(filters.command("start"))
+async def start(client, message):
+    args = message.text.split()
+    if len(args) > 1 and args[1].startswith("quiz-"):
+        quiz_id = args[1][5:]
+        questions = load_quiz_data(quiz_id)
+        if questions:
+            await send_polls(client, message.chat.id, questions)
+        else:
+            await message.reply_text("Invalid or expired quiz link.")
+    else:
+        button = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Add me to a group", url=f"t.me/{(await client.get_me()).username}?startgroup=true")]]
+        )
+        await message.reply_text("I am a quiz bot. Please add me to a group to start a quiz!",
+                                 reply_markup=button)
+
+# New help command
+@app.on_message(filters.command("help"))
+async def help_command(client, message):
+    help_text = """
+Here's how to use the Quiz Bot:
+
+1. Load a quiz file:
+   Reply to a .txt file with the /load command.
+   File format should be:
+   ```
+   1. Question text
+   A) Option A
+   B) Option B
+   C) Option C
+   D) Option D
+   Answer: A, Explanation (optional)
+
+   2. Next question...
+   ```
+
+2. Generate a quiz:
+   Use /poll <filename> [start] [end] to generate polls.
+
+3. List loaded files:
+   Use /list to see all loaded files.
+
+4. Delete a file:
+   Use /del <filename> to remove a loaded file.
+
+5. Share a quiz:
+   Send a .txt file or a message in the correct format, and the bot will generate a shareable link.
+    """
+    await message.reply_text(help_text)
+
+# New function to handle file or text message and generate quiz link
+@app.on_message(filters.private & (filters.document | filters.text))
+async def generate_quiz_link(client, message):
+    questions = []
+    if message.document:
+        if message.document.file_name.split('.')[-1].lower() != 'txt':
+            await message.reply_text("Please upload a text (.txt) file.")
+            return
+        file_path = await client.download_media(message.document)
+        with open(file_path, 'r') as file:
+            content = file.read()
+        os.remove(file_path)
+        questions = process_questions(content)
+    elif message.text:
+        questions = process_questions(message.text)
+    
+    if questions:
+        quiz_id = generate_quiz_id()
+        save_quiz_data(quiz_id, questions)
+        bot_username = (await client.get_me()).username
+        quiz_link = f"https://t.me/{bot_username}?start=quiz-{quiz_id}"
+        button = InlineKeyboardMarkup([[InlineKeyboardButton("Start Quiz", url=quiz_link)]])
+        await message.reply_text("Quiz created! Share this link to start the quiz:", reply_markup=button)
+    else:
+        await message.reply_text("No valid questions found. Please check the format and try again.")
+
+# Modified function to send random quiz to groups
+async def send_random_quiz():
+    settings = load_json_file(SETTINGS)
+    quiz_groups = settings.get('quiz_groups', [])
+    
+    if not quiz_groups:
+        return
+
+    loaded_files = load_files()
+    all_questions = []
+    for chat_files in loaded_files.values():
+        for file_path in chat_files.values():
+            all_questions.extend(read_questions(file_path))
+    
+    if not all_questions:
+        return
+
+    random_question = random.choice(all_questions)
+    for chat_id in quiz_groups:
+        if settings.get('random_quiz_enabled', {}).get(chat_id, False):
+            try:
+                await send_polls(app, int(chat_id), [random_question])
+            except Exception as e:
+                print(f"Error sending random quiz to {chat_id}: {e}")
+
+# Modified command to toggle random quiz feature (now for group admins)
+@app.on_message(filters.command("random_quiz") & filters.group)
+async def toggle_random_quiz(client, message):
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    
+    if not await is_admin(client, chat_id, user_id):
+        await message.reply_text("Only group admins can use this command.")
+        return
+
+    settings = load_json_file(SETTINGS)
+    current_state = settings.get('random_quiz_enabled', {}).get(str(chat_id), False)
+    new_state = not current_state
+    
+    if 'random_quiz_enabled' not in settings:
+        settings['random_quiz_enabled'] = {}
+    settings['random_quiz_enabled'][str(chat_id)] = new_state
+    
+    if 'quiz_groups' not in settings:
+        settings['quiz_groups'] = []
+    
+    if new_state and str(chat_id) not in settings['quiz_groups']:
+        settings['quiz_groups'].append(str(chat_id))
+    elif not new_state and str(chat_id) in settings['quiz_groups']:
+        settings['quiz_groups'].remove(str(chat_id))
+    
+    save_json_file(SETTINGS, settings)
+    await message.reply_text(f"Random quiz feature has been {'enabled' if new_state else 'disabled'} for this group.")
+
+# Initialize scheduler
+scheduler = AsyncIOScheduler()
+scheduler.add_job(send_random_quiz, 'interval', hours=1)
+scheduler.start()
 
 web = Quart(__name__)
 
