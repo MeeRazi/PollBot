@@ -1,6 +1,7 @@
 import re, os, asyncio, json
 from pyrogram import Client, filters, enums
 from pyrogram.errors import FloodWait
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.types import Message
 from quart import Quart
 
@@ -103,25 +104,6 @@ async def send_polls(client: Client, chat_id: int, questions: list, start: int =
         except Exception as e:
             print(f"Error sending poll: {e}")
 
-@app.on_message(filters.command("poll"))
-async def quiz(client, message):
-    chat_id = message.chat.id
-    
-    args = message.text.split(maxsplit=1)
-    if len(args) > 1:
-        file_name = args[1].strip()
-    else:
-        file_name = 'questions.txt'
-    
-    questions = read_questions(file_name)
-    
-    if not questions:
-        await message.reply_text(f"No valid questions found in the file: {file_name}")
-        return
-    
-    await send_polls(client, chat_id, questions)
-    await message.reply_text("Quiz completed!")
-
 async def is_admin(client, chat_id, user_id):
     try:
         member = await client.get_chat_member(chat_id, user_id)
@@ -131,9 +113,13 @@ async def is_admin(client, chat_id, user_id):
     
 @app.on_message(filters.command("start") & filters.private)
 async def start(client, message):
-    await message.reply_text("I am a quiz bot. Please add me to a group to start a quiz!")
+    button = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("Add me to a group", url=f"t.me/{(await client.get_me()).username}?startgroup=true")]]
+    )
+    await message.reply_text("I am a quiz bot. Please add me to a group to start a quiz!",
+                             reply_markup=button)
 
-@app.on_message(filters.command("gen"))
+@app.on_message(filters.command("poll"))
 async def generate_quiz_from_file(client, message: Message):
     chat_id = message.chat.id
     user_id = message.from_user.id
@@ -201,9 +187,9 @@ async def generate_quiz_from_file(client, message: Message):
         await message.reply_text("No valid questions found in the file.")
         return
 
-    await message.reply_text("Starting the quiz...")
+    m = await message.reply_text("Starting the quiz...")
     await send_polls(client, chat_id, questions, start, end)
-    await message.reply_text("Quiz completed!")
+    await m.edit("Quiz completed!")
 
 @app.on_message(filters.command("load"))
 async def load_file(client, message):
