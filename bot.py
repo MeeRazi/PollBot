@@ -71,6 +71,18 @@ def read_example_file():
         print(f"Warning: {example_file_path} not found.")
         return []    
 
+def read_questions(file_path):
+    try:
+        content = extract_text_from_file(file_path)
+        questions = process_questions(content)
+        if not questions:
+            print(f"No valid questions found in file: {file_path}")
+            print(f"File content: {content[:500]}...")  # Print first 500 characters for debugging
+        return questions
+    except Exception as e:
+        print(f"Error reading file {file_path}: {e}")
+        return []
+
 def process_questions(content):
     questions = re.split(r'\n\s*\n(?=\d+\.)', content.strip())
     quiz_data = []
@@ -87,39 +99,26 @@ def process_questions(content):
                 answer = answer_parts[0].split(':')[1].strip()
                 explanation = answer_parts[1].strip() if len(answer_parts) > 1 else None
                 correct_option_index = next((i for i, opt in enumerate(options) if opt.startswith(answer)), None)
+                
+                if correct_option_index is not None:
+                    quiz_data.append({
+                        "question": q_text,
+                        "options": options,
+                        "correct_option_id": correct_option_index,
+                        "explanation": explanation
+                    })
             else:
-                correct_option_index = None
-                explanation = None
-            
-            if q_text and options:
-                quiz_data.append({
-                    "question": q_text,
-                    "options": options,
-                    "correct_option_id": correct_option_index,
-                    "explanation": explanation
-                })
+                print(f"Warning: No answer found for question: {q_text}")
         except Exception as e:
             print(f"Error processing question: {question}\nError: {e}")
     
     return quiz_data
 
-def read_questions(file_path):
-    try:
-        content = extract_text_from_file(file_path)
-        questions = process_questions(content)
-        if not questions:
-            print(f"No valid questions found in file: {file_path}")
-            print(f"File content: {content[:500]}...")  # Print first 500 characters for debugging
-        return questions
-    except Exception as e:
-        print(f"Error reading file {file_path}: {e}")
-        return []
-
 async def send_polls(client: Client, chat_id: int, questions: list, start: int = 0, end: int = None):
     end = end or len(questions)
     for question in questions[start:end]:
         try:
-            if question["correct_option_id"] is not None:
+            if "correct_option_id" in question and question["correct_option_id"] is not None:
                 await client.send_poll(
                     chat_id,
                     question["question"],
@@ -127,22 +126,17 @@ async def send_polls(client: Client, chat_id: int, questions: list, start: int =
                     type=enums.PollType.QUIZ,
                     correct_option_id=question["correct_option_id"],
                     is_anonymous=False,
-                    explanation=question["explanation"] if question["explanation"] else None
+                    explanation=question.get("explanation")
                 )
             else:
-                await client.send_poll(
-                    chat_id,
-                    question["question"],
-                    options=question["options"],
-                    type=enums.PollType.REGULAR,
-                    is_anonymous=False
-                )
+                print(f"Warning: Skipping invalid question: {question}")
             await asyncio.sleep(3)
         except FloodWait as e:
             print(f"FloodWait: Sleeping for {e.value} seconds")
             await asyncio.sleep(e.value)
         except Exception as e:
             print(f"Error sending poll: {e}")
+
 
 async def is_admin(client, chat_id, user_id):
     try:
