@@ -6,8 +6,6 @@ from quart import Quart
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import docx2txt
 from bs4 import BeautifulSoup
-from odf import text, teletype
-from odf.opendocument import load
 
 # Telegram API credentials
 API_ID = int(os.environ.get('API_ID'))
@@ -60,10 +58,6 @@ def extract_text_from_file(file_path):
         with open(file_path, 'r', encoding='utf-8') as file:
             soup = BeautifulSoup(file, 'html.parser')
             return soup.get_text()
-    elif file_extension in ['.odt', '.ods', '.odp']:
-        textdoc = load(file_path)
-        allparas = textdoc.getElementsByType(text.P)
-        return " ".join([teletype.extractText(para) for para in allparas])
     else:
         raise ValueError(f"Unsupported file type: {file_extension}")
     
@@ -85,7 +79,7 @@ def process_questions(content):
         try:
             lines = question.strip().split('\n')
             q_text = lines[0].split('.', 1)[1].strip()
-            options = [line.split(') ', 1)[1].strip() for line in lines[1:-1]]
+            options = [line.split(') ', 1)[1].strip() for line in lines[1:-1] if ') ' in line]
             
             answer_line = lines[-1].strip()
             if answer_line.startswith("Answer:"):
@@ -97,12 +91,13 @@ def process_questions(content):
                 correct_option_index = None
                 explanation = None
             
-            quiz_data.append({
-                "question": q_text,
-                "options": options,
-                "correct_option_id": correct_option_index,
-                "explanation": explanation
-            })
+            if q_text and options:
+                quiz_data.append({
+                    "question": q_text,
+                    "options": options,
+                    "correct_option_id": correct_option_index,
+                    "explanation": explanation
+                })
         except Exception as e:
             print(f"Error processing question: {question}\nError: {e}")
     
@@ -111,7 +106,11 @@ def process_questions(content):
 def read_questions(file_path):
     try:
         content = extract_text_from_file(file_path)
-        return process_questions(content)
+        questions = process_questions(content)
+        if not questions:
+            print(f"No valid questions found in file: {file_path}")
+            print(f"File content: {content[:500]}...")  # Print first 500 characters for debugging
+        return questions
     except Exception as e:
         print(f"Error reading file {file_path}: {e}")
         return []
@@ -200,7 +199,7 @@ async def generate_quiz_from_file(client, message: Message):
         os.remove(file_path)
 
     if not questions:
-        await message.reply_text("No valid questions found in the file.")
+        await message.reply_text("No valid questions found in the file. Please check the file format and try again.")
         return
 
     m = await message.reply_text("Starting the quiz...")
