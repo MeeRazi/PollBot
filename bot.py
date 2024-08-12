@@ -296,6 +296,9 @@ web = Quart(__name__)
 async def index():
     return "Quiz Bot is running!"
 
+async def main():
+    await web.run_task(host="0.0.0.0", port=8080)
+
 if __name__ == "__main__":
-    app.start()
-    web.run_task(host="0.0.0.0", port=8080)
+    asyncio.get_event_loop().create_task(main())
+    app.run()
