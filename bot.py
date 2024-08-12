@@ -94,18 +94,16 @@ def process_questions(content):
                 answer = answer_parts[0].split(':')[1].strip()
                 explanation = answer_parts[1].strip() if len(answer_parts) > 1 else None
                 correct_option_id = next((i for i, opt in enumerate(options) if opt.startswith(f"{answer})")), None)
-                
-                if correct_option_id is not None:
-                    quiz_data.append({
-                        "question": q_text,
-                        "options": [opt.split(')', 1)[1].strip() for opt in options],
-                        "correct_option_id": correct_option_id,
-                        "explanation": explanation
-                    })
-                else:
-                    print(f"Warning: No valid answer found for question: {q_text}")
             else:
-                print(f"Warning: No answer line found for question: {q_text}")
+                correct_option_id = None
+                explanation = None
+            
+            quiz_data.append({
+                "question": q_text,
+                "options": [opt.split(')', 1)[1].strip() for opt in options],
+                "correct_option_id": correct_option_id,
+                "explanation": explanation
+            })
         except Exception as e:
             print(f"Error processing question: {question}\nError: {e}")
     
@@ -115,25 +113,22 @@ async def send_polls(client: Client, chat_id: int, questions: list, start: int =
     end = end or len(questions)
     for question in questions[start:end]:
         try:
-            if "correct_option_id" in question and question["correct_option_id"] is not None:
-                await client.send_poll(
-                    chat_id,
-                    question["question"],
-                    options=question["options"],
-                    type=enums.PollType.QUIZ,
-                    correct_option_id=question["correct_option_id"],
-                    is_anonymous=False,
-                    explanation=question.get("explanation")
-                )
-            else:
-                print(f"Warning: Skipping invalid question: {question}")
+            is_quiz = question["correct_option_id"] is not None
+            await client.send_poll(
+                chat_id,
+                question["question"],
+                options=question["options"],
+                type=enums.PollType.QUIZ if is_quiz else enums.PollType.REGULAR,
+                correct_option_id=question["correct_option_id"] if is_quiz else None,
+                is_anonymous=False,
+                explanation=question.get("explanation") if is_quiz else None
+            )
             await asyncio.sleep(3)
         except FloodWait as e:
             print(f"FloodWait: Sleeping for {e.value} seconds")
             await asyncio.sleep(e.value)
         except Exception as e:
             print(f"Error sending poll: {e}")
-
 
 async def is_admin(client, chat_id, user_id):
     try:
