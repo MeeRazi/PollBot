@@ -298,19 +298,19 @@ async def help_command(client, message):
 Here's how to use the Quiz Bot:
 
 1. Load a quiz file:
-   Reply to a file (txt, docx, html, pdf, odt) with the /load command.
-   File format should be:
-   ```
-   1. Question text
-   A) Option A
-   B) Option B
-   C) Option C
-   D) Option D
-   Answer: A, Explanation (optional)
+Reply to a file (txt, docx, html, pdf, odt) with the /load command.
+File format should be:
+```
+1. Question text
+A) Option A
+B) Option B
+C) Option C
+D) Option D
+Answer: A, Explanation (optional)
 
-   2. Next question...
-   ```
-   Note: You can have 1 to 9 options per question.
+2. Next question...
+```
+Note: You can have 1 to 9 options per question.
 
 2. Generate a quiz:
    Use /poll <filename> [start] [end] to generate polls.
@@ -320,9 +320,7 @@ Here's how to use the Quiz Bot:
    Use /del <filename> to remove a loaded file.
 5. Share a quiz:
    Send a file or a message in the correct format, and the bot will generate a shareable link.
-6. Random Quiz:
-   The bot posts a random quiz every hour. Use /random_quiz to toggle this feature (on by default).
-    """
+"""
     await message.reply_text(help_text)
 
 @app.on_message(filters.private & (filters.document | filters.text))
