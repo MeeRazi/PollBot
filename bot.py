@@ -128,6 +128,10 @@ async def is_admin(client, chat_id, user_id):
         return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
     except Exception:
         return False
+    
+@app.on_message(filters.command("start") & filters.private)
+async def start(client, message):
+    await message.reply_text("I am a quiz bot. Please add me to a group to start a quiz!")
 
 @app.on_message(filters.command("gen"))
 async def generate_quiz_from_file(client, message: Message):
