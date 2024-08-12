@@ -316,7 +316,7 @@ async def start(client, message):
             await message.reply_text("Invalid or expired quiz link.")
     else:
         button = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("Add me to a group", url=f"t.me/{(await client.get_me()).username}?startgroup=true")]]
+            [[InlineKeyboardButton("Add me to a group", url=f"t.me/{(await client.get_me()).username}?startgroup=quiz&admin=change_info")]]
         )
         await message.reply_text("I am a quiz bot. Please add me to a group to start a quiz!",
                                  reply_markup=button)
@@ -375,7 +375,7 @@ async def generate_quiz_link(client, message):
         quiz_id = generate_quiz_id()
         save_quiz_data(quiz_id, questions)
         bot_username = (await client.get_me()).username
-        quiz_link = f"https://t.me/{bot_username}?start=quiz-{quiz_id}"
+        quiz_link = f"https://t.me/{bot_username}?startgroup=quiz-{quiz_id}"
         button = InlineKeyboardMarkup([[InlineKeyboardButton("Start Quiz", url=quiz_link)]])
         await message.reply_text("Quiz created! Share this link to start the quiz:", reply_markup=button)
     else:
