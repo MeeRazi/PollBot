@@ -6,7 +6,6 @@ from quart import Quart
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import docx2txt
 from bs4 import BeautifulSoup
-import pdfplumber
 from odf import text, teletype
 from odf.opendocument import load
 
@@ -61,12 +60,6 @@ def extract_text_from_file(file_path):
         with open(file_path, 'r', encoding='utf-8') as file:
             soup = BeautifulSoup(file, 'html.parser')
             return soup.get_text()
-    elif file_extension == '.pdf':
-        text = ""
-        with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
-                text += page.extract_text()
-        return text
     elif file_extension in ['.odt', '.ods', '.odp']:
         textdoc = load(file_path)
         allparas = textdoc.getElementsByType(text.P)
