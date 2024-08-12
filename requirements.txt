@@ -4,5 +4,4 @@ quart
 apscheduler
 docx2txt
 beautifulsoup4
-pdfplumber
 odfpy
