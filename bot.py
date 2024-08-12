@@ -3,7 +3,6 @@ from pyrogram import Client, filters, enums
 from pyrogram.errors import FloodWait
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from quart import Quart
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import docx2txt
 from bs4 import BeautifulSoup
 
@@ -18,10 +17,6 @@ app = Client("quiz_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 # File to store loaded quiz files
 LOADED_FILES = "loaded_files.json"
 QUIZ_DATA = "quiz_data.json"
-SETTINGS = "settings.json"
-GLOBAL_POLLS = "global_polls.json"
-
-OWNER_ID = 2154687955
 
 def load_json_file(filename):
     if os.path.exists(filename):
@@ -84,31 +79,33 @@ def read_questions(file_path):
         return []
 
 def process_questions(content):
-    questions = re.split(r'\n\s*\n(?=\d+\.)', content.strip())
+    questions = re.split(r'\n(?=\d+\.)', content.strip())
     quiz_data = []
     
     for question in questions:
         try:
             lines = question.strip().split('\n')
             q_text = lines[0].split('.', 1)[1].strip()
-            options = [line.split(') ', 1)[1].strip() for line in lines[1:-1] if ') ' in line]
+            options = [line.strip() for line in lines[1:] if re.match(r'^[A-I]\)', line.strip())]
             
-            answer_line = lines[-1].strip()
-            if answer_line.startswith("Answer:"):
+            answer_line = next((line for line in lines if line.startswith("Answer:")), None)
+            if answer_line:
                 answer_parts = answer_line.split(',', 1)
                 answer = answer_parts[0].split(':')[1].strip()
                 explanation = answer_parts[1].strip() if len(answer_parts) > 1 else None
-                correct_option_index = next((i for i, opt in enumerate(options) if opt.startswith(answer)), None)
+                correct_option_id = next((i for i, opt in enumerate(options) if opt.startswith(f"{answer})")), None)
                 
-                if correct_option_index is not None:
+                if correct_option_id is not None:
                     quiz_data.append({
                         "question": q_text,
-                        "options": options,
-                        "correct_option_id": correct_option_index,
+                        "options": [opt.split(')', 1)[1].strip() for opt in options],
+                        "correct_option_id": correct_option_id,
                         "explanation": explanation
                     })
+                else:
+                    print(f"Warning: No valid answer found for question: {q_text}")
             else:
-                print(f"Warning: No answer found for question: {q_text}")
+                print(f"Warning: No answer line found for question: {q_text}")
         except Exception as e:
             print(f"Error processing question: {question}\nError: {e}")
     
@@ -353,117 +350,6 @@ async def generate_quiz_link(client, message):
         await message.reply_text("Quiz created! Share this link to start the quiz:", reply_markup=button)
     else:
         await message.reply_text("No valid questions found. Please check the format and try again.")
-
-async def send_random_quiz():
-    settings = load_json_file(SETTINGS)
-    quiz_groups = settings.get('quiz_groups', [])
-    
-    if not quiz_groups:
-        return
-
-    loaded_files = load_json_file(LOADED_FILES)
-    all_questions = []
-    for chat_files in loaded_files.values():
-        for file_path in chat_files.values():
-            all_questions.extend(read_questions(file_path))
-    
-    global_polls = load_json_file(GLOBAL_POLLS)
-    all_questions.extend(global_polls)
-
-    # Add questions from example.txt
-    example_questions = read_example_file()
-    all_questions.extend(example_questions)
-
-    if not all_questions:
-        print("No questions available for random quiz.")
-        return
-
-    for chat_id in quiz_groups:
-        if settings.get('random_quiz_enabled', {}).get(chat_id, True):  # Default is True
-            try:
-                random_question = random.choice(all_questions)
-                await send_polls(app, int(chat_id), [random_question])
-            except Exception as e:
-                print(f"Error sending random quiz to {chat_id}: {e}")
-
-@app.on_message(filters.command("random_quiz") & filters.group)
-async def toggle_random_quiz(client, message):
-    user_id = message.from_user.id
-    chat_id = str(message.chat.id)
-    
-    if not await is_admin(client, chat_id, user_id):
-        await message.reply_text("Only group admins can use this command.")
-        return
-
-    settings = load_json_file(SETTINGS)
-    current_state = settings.get('random_quiz_enabled', {}).get(chat_id, True)  # Default is True
-    new_state = not current_state
-    
-    if 'random_quiz_enabled' not in settings:
-        settings['random_quiz_enabled'] = {}
-    settings['random_quiz_enabled'][chat_id] = new_state
-    
-    if 'quiz_groups' not in settings:
-        settings['quiz_groups'] = []
-    
-    if new_state and chat_id not in settings['quiz_groups']:
-        settings['quiz_groups'].append(chat_id)
-    elif not new_state and chat_id in settings['quiz_groups']:
-        settings['quiz_groups'].remove(chat_id)
-    
-    save_json_file(SETTINGS, settings)
-    await message.reply_text(f"Random quiz feature has been {'enabled' if new_state else 'disabled'} for this group.")
-
-@app.on_message(filters.command("update") & filters.private)
-async def update_global_poll(client, message):
-    if message.from_user.id != OWNER_ID:
-        await message.reply_text("This command is only available to the bot owner.")
-        return
-
-    if not message.reply_to_message or not message.reply_to_message.text:
-        await message.reply_text("Please reply to a message containing the global poll question.")
-        return
-
-    content = message.reply_to_message.text
-    questions = process_questions(content)
-
-    if not questions:
-        await message.reply_text("No valid questions found. Please check the format and try again.")
-        return
-
-    global_polls = load_json_file(GLOBAL_POLLS)
-    global_polls.extend(questions)
-    save_json_file(GLOBAL_POLLS, global_polls)
-
-    await message.reply_text(f"{len(questions)} question(s) added to the global polls.")
-
-@app.on_message(filters.command("delete") & filters.private)
-async def delete_global_poll(client, message):
-    if message.from_user.id != OWNER_ID:
-        await message.reply_text("This command is only available to the bot owner.")
-        return
-
-    args = message.text.split()
-    if len(args) != 2 or not args[1].isdigit():
-        await message.reply_text("Please provide the index of the global poll to delete.")
-        return
-
-    index = int(args[1]) - 1
-    global_polls = load_json_file(GLOBAL_POLLS)
-
-    if index < 0 or index >= len(global_polls):
-        await message.reply_text("Invalid index. Please provide a valid index.")
-        return
-
-    deleted_poll = global_polls.pop(index)
-    save_json_file(GLOBAL_POLLS, global_polls)
-
-    await message.reply_text(f"Global poll deleted:\n{deleted_poll['question']}")
-
-# Initialize scheduler
-scheduler = AsyncIOScheduler()
-scheduler.add_job(send_random_quiz, 'interval', hours=1)
-scheduler.start()
 
 web = Quart(__name__)
 
