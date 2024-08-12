@@ -323,7 +323,7 @@ Note: You can have 1 to 9 options per question.
 """
     await message.reply_text(help_text)
 
-@app.on_message(filters.private & (filters.document | filters.text))
+@app.on_message(filters.private & (filters.document | filters.text) & ~filters.bot)
 async def generate_quiz_link(client, message):
     questions = []
     if message.document:
